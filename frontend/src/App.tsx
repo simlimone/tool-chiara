@@ -65,7 +65,7 @@ function App() {
     const checkJobStatus = async (id: string) => {
         try {
             const response = await axios.get(`http://localhost:8000/status/${id}`);
-            const { status, progress } = response.data;
+            const { status, progress, error } = response.data;
 
             if (progress) {
                 setProcessingDetails(progress);
@@ -74,11 +74,12 @@ function App() {
 
             if (status === 'completed') {
                 await downloadResult(id);
+                setLoading(false);
             } else if (status === 'failed') {
-                setError(response.data.error || 'Trascrizione fallita');
+                setError(error?.message || 'Trascrizione fallita');
                 setLoading(false);
             } else {
-                const delay = progress?.stage === 'transcribing' ? 500 : 1000;
+                const delay = progress?.stage === 'transcribing' ? 1000 : 2000;
                 setTimeout(() => checkJobStatus(id), delay);
             }
         } catch (error) {
@@ -145,7 +146,6 @@ function App() {
             setError(error instanceof Error ?
                 error.message :
                 'Si è verificato un errore durante la trascrizione');
-        } finally {
             setLoading(false);
         }
     };

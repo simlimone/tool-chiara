@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pydub import AudioSegment
 from moviepy.editor import AudioFileClip
 import torch
+import glob
 
 app = FastAPI()
 
@@ -103,44 +104,63 @@ async def convert_to_wav(input_path: str) -> str:
 
 async def process_audio(job_id: str, file_path: str, output_path: str):
     try:
-        # Initial validation
-        update_job_status(
-            job_id,
-            "validating",
-            current=0,
-            total_chunks=6,  # Updated total steps
-            message="Fase 1/6: Validazione del file audio...",
-        )
+        # Initialize variables
+        current_step = 1
+        total_steps = 6
+        transcriptions = []
+
+        # Ensure absolute paths
+        file_path = os.path.abspath(file_path)
+        output_path = os.path.abspath(output_path)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        temp_dir = os.path.join(base_dir, "temp")
+        output_dir = os.path.join(base_dir, "output")
+
+        # Create directories if they don't exist
+        os.makedirs(temp_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File audio non trovato: {file_path}")
 
+        # Initial validation
+        update_job_status(
+            job_id,
+            "validating",
+            current=current_step,
+            total_chunks=total_steps,
+            message="Fase 1/6: Validazione del file audio..."
+        )
+
+        current_step += 1
+
         # GPU Check
+        current_step += 1  # Increment before GPU check
         if torch.cuda.is_available():
             gpu_name = torch.cuda.get_device_name(0)
             update_job_status(
                 job_id,
                 "gpu_check",
-                current=1,
-                total_chunks=6,
-                message=f"Fase 2/6: GPU rilevata ({gpu_name}). Ottimizzazione in corso...",
+                current=current_step,
+                total_chunks=total_steps,
+                message=f"Fase 2/6: GPU rilevata ({gpu_name}). Ottimizzazione in corso..."
             )
         else:
             update_job_status(
                 job_id,
                 "gpu_check",
-                current=1,
-                total_chunks=6,
-                message="Fase 2/6: GPU non disponibile. Utilizzo CPU (processo più lento)...",
+                current=current_step,
+                total_chunks=total_steps,
+                message="Fase 2/6: GPU non disponibile. Utilizzo CPU (processo più lento)..."
             )
 
         # Audio conversion
         update_job_status(
             job_id,
             "converting",
-            current=2,
-            total_chunks=6,
-            message="Fase 3/6: Ottimizzazione del file audio...",
+            current=current_step,
+            total_chunks=total_steps,
+            message="Fase 3/6: Ottimizzazione del file audio..."
         )
         wav_path = await convert_to_wav(file_path)
 
@@ -148,9 +168,9 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
         update_job_status(
             job_id,
             "loading_model",
-            current=3,
-            total_chunks=6,
-            message="Fase 4/6: Caricamento del modello di intelligenza artificiale...",
+            current=current_step,
+            total_chunks=total_steps,
+            message="Fase 4/6: Caricamento del modello di intelligenza artificiale..."
         )
         model = await load_model()  # New function for model loading
 
@@ -158,9 +178,9 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
         update_job_status(
             job_id,
             "splitting_audio",
-            current=4,
-            total_chunks=6,
-            message="Fase 5/6: Divisione dell'audio in segmenti...",
+            current=current_step,
+            total_chunks=total_steps,
+            message="Fase 5/6: Divisione dell'audio in segmenti..."
         )
         chunks = await split_audio(wav_path)
 
@@ -168,9 +188,9 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
         update_job_status(
             job_id,
             "transcribing",
-            current=5,
-            total_chunks=6,
-            message=f"Fase 6/6: Trascrizione in corso (0/{len(chunks)} segmenti)",
+            current=current_step,
+            total_chunks=total_steps,
+            message=f"Fase 6/6: Trascrizione in corso (0/{len(chunks)} segmenti)"
         )
 
         # Batch processing ottimizzato per GPU
@@ -216,7 +236,7 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
                     "transcribing",
                     i + 1,
                     len(chunks),
-                    f"Trascrizione segmento {i+1} di {len(chunks)}",
+                    f"Trascrizione segmento {i+1} di {len(chunks)}"
                 )
 
             except Exception as e:
@@ -229,7 +249,7 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
             "formatting",
             current=current_step,
             total_chunks=total_steps,
-            message="Fase 5/5: Formattazione del documento finale...",
+            message="Fase 5/5: Formattazione del documento finale..."
         )
 
         update_job_status(job_id, "formatting", message="Formattazione del testo...")
@@ -299,6 +319,29 @@ def format_transcription(text: str) -> str:
     text = re.sub(r"([.,!?])([^\s])", r"\1 \2", text)
 
     return text
+
+
+def cleanup_temp_files(file_path: str):
+    """Clean up temporary files after processing"""
+    try:
+        # Clean up the original file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        
+        # Clean up WAV file if it exists
+        wav_path = f"{os.path.splitext(file_path)[0]}.wav"
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+            
+        # Clean up any remaining chunk files
+        base_path = os.path.splitext(file_path)[0]
+        chunk_pattern = f"{base_path}_chunk_*.wav"
+        for chunk_file in glob.glob(chunk_pattern):
+            if os.path.exists(chunk_file):
+                os.remove(chunk_file)
+                
+    except Exception as e:
+        print(f"Error during cleanup: {str(e)}")
 
 
 @app.post("/transcribe")
