@@ -90,6 +90,7 @@ chmod +x setup.sh run.sh
 
 ## Project Structure
 
+```
 /audio-transcription-app
 ├── backend/
 │ ├── main.py
@@ -104,6 +105,7 @@ chmod +x setup.sh run.sh
 ├── run.sh
 ├── setup.ps1
 └── run.ps1
+```
 
 ## Error Handling
 
