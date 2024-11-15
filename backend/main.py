@@ -98,13 +98,16 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
             torch.backends.cudnn.enabled = True
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
+            torch.cuda.set_device(0)  # Forza l'uso della GPU principale
             print(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
         # Carica il modello medium per bilanciare velocità e accuratezza
-        model = whisper.load_model("medium")
+        model = whisper.load_model("small")
         if torch.cuda.is_available():
             model = model.cuda()
-            model = torch.compile(model, mode="reduce-overhead")
+            model.eval()  # Imposta modalità valutazione
+            torch._C._jit_set_bailout_depth(20)  # Ottimizza JIT
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
         # Fase 2: Splitting audio
         current_step += 1
@@ -116,8 +119,8 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
             message="Fase 2/4: Divisione dell'audio in segmenti...",
         )
 
-        # Chunk più piccoli per elaborazione più veloce
-        chunks = await split_audio(file_path, chunk_duration=180000)  # 3 minuti
+        # Chunk più grandi per sfruttare meglio la GPU
+        chunks = await split_audio(file_path, chunk_duration=300000)  # 5 minuti
 
         # Fase 3: Trascrizione
         current_step += 1
@@ -130,31 +133,42 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
         )
 
         # Batch processing ottimizzato per GPU
-        batch_size = 1  # Un chunk alla volta per massimizzare la velocità
-        for i in range(0, len(chunks), batch_size):
-            chunk = chunks[i]
+        for i, chunk in enumerate(chunks):
             try:
+                # Forza sincronizzazione GPU prima di ogni chunk
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+
                 with torch.cuda.amp.autocast(
                     enabled=True, dtype=torch.float16, cache_enabled=True
                 ):
                     with torch.inference_mode():
-                        result = model.transcribe(
-                            chunk,
-                            fp16=True,
-                            language="italian",
-                            initial_prompt="Questa è una trascrizione di un audio in italiano.",
-                            temperature=0.0,
-                            no_speech_threshold=0.6,
-                            compression_ratio_threshold=2.4,
-                            condition_on_previous_text=True,
-                            beam_size=1,  # Ridotto per velocità
-                            best_of=1,  # Ridotto per velocità
-                            without_timestamps=True,
-                        )
+                        with torch.backends.cuda.sdp_kernel(
+                            enable_flash=True,
+                            enable_math=True,
+                            enable_mem_efficient=True,
+                        ):
+                            result = model.transcribe(
+                                chunk,
+                                fp16=True,
+                                language="italian",
+                                initial_prompt="Questa è una trascrizione di un audio in italiano.",
+                                temperature=0.0,
+                                no_speech_threshold=0.6,
+                                compression_ratio_threshold=2.4,
+                                condition_on_previous_text=True,
+                                beam_size=5,  # Aumentato per sfruttare la GPU
+                                best_of=5,  # Aumentato per sfruttare la GPU
+                                without_timestamps=True,
+                            )
                         transcriptions.append(result["text"])
 
                 os.remove(chunk)
-                torch.cuda.synchronize()  # Sincronizza GPU
+
+                # Forza sincronizzazione dopo ogni chunk
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
 
                 update_job_status(
                     job_id,
