@@ -103,80 +103,74 @@ async def convert_to_wav(input_path: str) -> str:
 
 async def process_audio(job_id: str, file_path: str, output_path: str):
     try:
-        # Add more detailed error messages
+        # Initial validation
+        update_job_status(
+            job_id,
+            "validating",
+            current=0,
+            total_chunks=6,  # Updated total steps
+            message="Fase 1/6: Validazione del file audio...",
+        )
+
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File audio non trovato: {file_path}")
 
-        if not torch.cuda.is_available():
-            print("WARNING: GPU non disponibile. Il processo sarà più lento.")
+        # GPU Check
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            update_job_status(
+                job_id,
+                "gpu_check",
+                current=1,
+                total_chunks=6,
+                message=f"Fase 2/6: GPU rilevata ({gpu_name}). Ottimizzazione in corso...",
+            )
+        else:
+            update_job_status(
+                job_id,
+                "gpu_check",
+                current=1,
+                total_chunks=6,
+                message="Fase 2/6: GPU non disponibile. Utilizzo CPU (processo più lento)...",
+            )
 
-        # Add logging for each major step
-        print(f"Inizio elaborazione job {job_id}")
-        print(f"File di input: {file_path}")
-        print(f"File di output: {output_path}")
-
-        transcriptions = []
-        total_steps = 5
-        current_step = 1
-
-        # Fase 1: Conversione audio
+        # Audio conversion
         update_job_status(
             job_id,
             "converting",
-            current=current_step,
-            total_chunks=total_steps,
-            message="Fase 1/5: Conversione del file audio...",
+            current=2,
+            total_chunks=6,
+            message="Fase 3/6: Ottimizzazione del file audio...",
         )
-
         wav_path = await convert_to_wav(file_path)
 
-        # Fase 2: Caricamento modello
-        current_step += 1
+        # Model loading
         update_job_status(
             job_id,
             "loading_model",
-            current=current_step,
-            total_chunks=total_steps,
-            message="Fase 2/5: Caricamento modello di intelligenza artificiale su GPU...",
+            current=3,
+            total_chunks=6,
+            message="Fase 4/6: Caricamento del modello di intelligenza artificiale...",
         )
+        model = await load_model()  # New function for model loading
 
-        if torch.cuda.is_available():
-            # Massimizza l'utilizzo della GPU
-            torch.cuda.empty_cache()
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cudnn.enabled = True
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            torch.cuda.set_device(0)
-            print(f"Using GPU: {torch.cuda.get_device_name(0)}")
-
-        model = whisper.load_model("small")
-        if torch.cuda.is_available():
-            model = model.cuda()
-            model.eval()
-            torch._C._jit_set_bailout_depth(20)
-            model = torch.compile(model, mode="max-autotune", fullgraph=True)
-
-        # Fase 3: Splitting audio
-        current_step += 1
+        # Audio splitting
         update_job_status(
             job_id,
             "splitting_audio",
-            current=current_step,
-            total_chunks=total_steps,
-            message="Fase 3/5: Divisione dell'audio in segmenti...",
+            current=4,
+            total_chunks=6,
+            message="Fase 5/6: Divisione dell'audio in segmenti...",
         )
+        chunks = await split_audio(wav_path)
 
-        chunks = await split_audio(wav_path, chunk_duration=300000)  # 5 minuti
-
-        # Fase 4: Trascrizione
-        current_step += 1
+        # Transcription
         update_job_status(
             job_id,
             "transcribing",
-            current=current_step,
-            total_chunks=len(chunks),
-            message=f"Fase 4/5: Inizio trascrizione con GPU",
+            current=5,
+            total_chunks=6,
+            message=f"Fase 6/6: Trascrizione in corso (0/{len(chunks)} segmenti)",
         )
 
         # Batch processing ottimizzato per GPU
@@ -382,3 +376,20 @@ async def download_file(job_id: str):
         raise HTTPException(status_code=400, detail="File not ready")
 
     return FileResponse(job["output_path"], filename=f"{job['filename']}.docx")
+
+
+async def load_model():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+
+    model = whisper.load_model("small")
+
+    if torch.cuda.is_available():
+        model = model.cuda()
+        model.eval()
+        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
+    return model

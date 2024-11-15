@@ -1,6 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+interface ProcessingDetails {
+    stage: string;
+    current_chunk: number;
+    total_chunks: number;
+    message: string;
+}
+
+const getStageIcon = (stage: string) => {
+    switch (stage) {
+        case 'validating': return '🔍';
+        case 'gpu_check': return '🖥️';
+        case 'converting': return '🔄';
+        case 'loading_model': return '🤖';
+        case 'splitting_audio': return '✂️';
+        case 'transcribing': return '📝';
+        default: return '⏳';
+    }
+};
+
+const ProcessingStage: React.FC<{ details: ProcessingDetails }> = ({ details }) => (
+    <div className="processing-stage">
+        <div className="stage-header">
+            <span className="stage-icon">{getStageIcon(details.stage)}</span>
+            <span className="stage-message">{details.message}</span>
+        </div>
+        <div className="progress-bar">
+            <div
+                className="progress-bar-fill"
+                style={{
+                    width: `${(details.current_chunk / details.total_chunks) * 100}%`
+                }}
+            />
+        </div>
+    </div>
+);
+
 function App() {
     const [file, setFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
