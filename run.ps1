@@ -3,6 +3,34 @@ $Green = [System.ConsoleColor]::Green
 $Blue = [System.ConsoleColor]::Blue
 $Red = [System.ConsoleColor]::Red
 
+# Function to check if port is in use
+function Test-PortInUse {
+    param($port)
+    
+    try {
+        $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $port)
+        $listener.Start()
+        $listener.Stop()
+        return $false # Port is free
+    } catch {
+        return $true # Port is in use
+    }
+}
+
+# Check ports first
+$frontendPort = 3000
+$backendPort = 8000
+
+if (Test-PortInUse $frontendPort) {
+    Write-Host "Port $frontendPort is already in use. Please free up the port." -ForegroundColor $Red
+    exit 1
+}
+
+if (Test-PortInUse $backendPort) {
+    Write-Host "Port $backendPort is already in use. Please free up the port." -ForegroundColor $Red
+    exit 1
+}
+
 # Function to cleanup background processes on exit
 function Cleanup {
     Write-Host "`nShutting down services..." -ForegroundColor $Blue
@@ -41,35 +69,7 @@ Write-Host "Frontend: http://localhost:3000" -ForegroundColor $Green
 Write-Host "Backend: http://localhost:8000" -ForegroundColor $Green
 Write-Host "Press Ctrl+C to stop both servers" -ForegroundColor $Blue
 
-# Function to check if port is in use
-function Test-PortInUse {
-    param($port)
-    
-    try {
-        $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $port)
-        $listener.Start()
-        $listener.Stop()
-        return $false # Port is free
-    } catch {
-        return $true # Port is in use
-    }
-}
-
 try {
-    # Check if ports are available
-    $frontendPort = 3000
-    $backendPort = 8000
-    
-    if (Test-PortInUse $frontendPort) {
-        Write-Host "Port $frontendPort is already in use. Please free up the port." -ForegroundColor $Red
-        exit 1
-    }
-    
-    if (Test-PortInUse $backendPort) {
-        Write-Host "Port $backendPort is already in use. Please free up the port." -ForegroundColor $Red
-        exit 1
-    }
-
     while ($true) {
         if ([Console]::KeyAvailable) {
             $key = [Console]::ReadKey($true)
