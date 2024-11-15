@@ -41,17 +41,31 @@ Write-Host "Frontend: http://localhost:3000" -ForegroundColor $Green
 Write-Host "Backend: http://localhost:8000" -ForegroundColor $Green
 Write-Host "Press Ctrl+C to stop both servers" -ForegroundColor $Blue
 
+# Function to check if port is in use
+function Test-PortInUse {
+    param($port)
+    
+    try {
+        $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, $port)
+        $listener.Start()
+        $listener.Stop()
+        return $false # Port is free
+    } catch {
+        return $true # Port is in use
+    }
+}
+
 try {
     # Check if ports are available
     $frontendPort = 3000
     $backendPort = 8000
     
-    if ((Test-NetConnection localhost -Port $frontendPort -WarningAction SilentlyContinue).TcpTestSucceeded) {
+    if (Test-PortInUse $frontendPort) {
         Write-Host "Port $frontendPort is already in use. Please free up the port." -ForegroundColor $Red
         exit 1
     }
     
-    if ((Test-NetConnection localhost -Port $backendPort -WarningAction SilentlyContinue).TcpTestSucceeded) {
+    if (Test-PortInUse $backendPort) {
         Write-Host "Port $backendPort is already in use. Please free up the port." -ForegroundColor $Red
         exit 1
     }
