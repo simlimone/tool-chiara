@@ -76,19 +76,56 @@ async def split_audio(file_path: str, chunk_duration: int = 120000) -> list:
     return chunks
 
 
+async def convert_to_wav(input_path: str) -> str:
+    """Convert audio file to WAV format"""
+    try:
+        output_path = f"{os.path.splitext(input_path)[0]}.wav"
+
+        # Use pydub for conversion
+        audio = AudioSegment.from_file(input_path)
+        audio = audio.set_channels(1)  # Convert to mono
+        audio = audio.set_frame_rate(16000)  # Set sample rate
+
+        # Export as WAV with optimal parameters
+        audio.export(
+            output_path, format="wav", parameters=["-q:a", "0", "-ar", "16000"]
+        )
+
+        # Clean up original file
+        os.remove(input_path)
+        return output_path
+
+    except Exception as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise Exception(f"Errore nella conversione audio: {str(e)}")
+
+
 async def process_audio(job_id: str, file_path: str, output_path: str):
     try:
         transcriptions = []
-        total_steps = 4
+        total_steps = 5
         current_step = 1
 
-        # Fase 1: Caricamento modello
+        # Fase 1: Conversione audio
+        update_job_status(
+            job_id,
+            "converting",
+            current=current_step,
+            total_chunks=total_steps,
+            message="Fase 1/5: Conversione del file audio...",
+        )
+
+        wav_path = await convert_to_wav(file_path)
+
+        # Fase 2: Caricamento modello
+        current_step += 1
         update_job_status(
             job_id,
             "loading_model",
             current=current_step,
             total_chunks=total_steps,
-            message="Fase 1/4: Caricamento modello di intelligenza artificiale su GPU...",
+            message="Fase 2/5: Caricamento modello di intelligenza artificiale su GPU...",
         )
 
         if torch.cuda.is_available():
@@ -98,38 +135,36 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
             torch.backends.cudnn.enabled = True
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-            torch.cuda.set_device(0)  # Forza l'uso della GPU principale
+            torch.cuda.set_device(0)
             print(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
-        # Carica il modello medium per bilanciare velocità e accuratezza
         model = whisper.load_model("small")
         if torch.cuda.is_available():
             model = model.cuda()
-            model.eval()  # Imposta modalità valutazione
-            torch._C._jit_set_bailout_depth(20)  # Ottimizza JIT
+            model.eval()
+            torch._C._jit_set_bailout_depth(20)
             model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
-        # Fase 2: Splitting audio
+        # Fase 3: Splitting audio
         current_step += 1
         update_job_status(
             job_id,
             "splitting_audio",
             current=current_step,
             total_chunks=total_steps,
-            message="Fase 2/4: Divisione dell'audio in segmenti...",
+            message="Fase 3/5: Divisione dell'audio in segmenti...",
         )
 
-        # Chunk più grandi per sfruttare meglio la GPU
-        chunks = await split_audio(file_path, chunk_duration=300000)  # 5 minuti
+        chunks = await split_audio(wav_path, chunk_duration=300000)  # 5 minuti
 
-        # Fase 3: Trascrizione
+        # Fase 4: Trascrizione
         current_step += 1
         update_job_status(
             job_id,
             "transcribing",
             current=current_step,
             total_chunks=len(chunks),
-            message=f"Fase 3/4: Inizio trascrizione con GPU",
+            message=f"Fase 4/5: Inizio trascrizione con GPU",
         )
 
         # Batch processing ottimizzato per GPU
@@ -181,14 +216,14 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
             except Exception as e:
                 print(f"Errore nel chunk {i}: {str(e)}")
 
-        # Fase 4: Formattazione
+        # Fase 5: Formattazione
         current_step += 1
         update_job_status(
             job_id,
             "formatting",
             current=current_step,
             total_chunks=total_steps,
-            message="Fase 4/4: Formattazione del documento finale...",
+            message="Fase 5/5: Formattazione del documento finale...",
         )
 
         update_job_status(job_id, "formatting", message="Formattazione del testo...")
