@@ -16,7 +16,11 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Activate virtual environment
-source venv/bin/activate
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    source venv/bin/activate
+else
+    source venv/bin/activate
+fi
 
 # Create necessary directories
 mkdir -p backend/temp backend/output
