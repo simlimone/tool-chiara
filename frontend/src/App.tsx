@@ -75,17 +75,23 @@ function App() {
     };
 
     const handleSubmit = async () => {
-        if (!file) return;
-
-        setLoading(true);
-        setProgress(0);
-        setError('');
-        setJobId(null);
-
-        const formData = new FormData();
-        formData.append('file', file);
+        if (!file) {
+            setError('Seleziona un file audio prima di procedere');
+            return;
+        }
 
         try {
+            setLoading(true);
+            setError('');
+
+            // File size check
+            if (file.size > 100 * 1024 * 1024) {
+                throw new Error('Il file non può superare i 100MB');
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
             const response = await axios.post('http://localhost:8000/transcribe', formData, {
                 onUploadProgress: (progressEvent) => {
                     const percentCompleted = Math.round(
@@ -98,8 +104,12 @@ function App() {
 
             setJobId(response.data.job_id);
             checkJobStatus(response.data.job_id);
-        } catch (error: any) {
-            setError(error.response?.data?.detail || 'An error occurred during transcription');
+        } catch (error) {
+            console.error('Error during transcription:', error);
+            setError(error instanceof Error ?
+                error.message :
+                'Si è verificato un errore durante la trascrizione');
+        } finally {
             setLoading(false);
         }
     };

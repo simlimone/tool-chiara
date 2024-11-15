@@ -103,6 +103,18 @@ async def convert_to_wav(input_path: str) -> str:
 
 async def process_audio(job_id: str, file_path: str, output_path: str):
     try:
+        # Add more detailed error messages
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File audio non trovato: {file_path}")
+
+        if not torch.cuda.is_available():
+            print("WARNING: GPU non disponibile. Il processo sarà più lento.")
+
+        # Add logging for each major step
+        print(f"Inizio elaborazione job {job_id}")
+        print(f"File di input: {file_path}")
+        print(f"File di output: {output_path}")
+
         transcriptions = []
         total_steps = 5
         current_step = 1
@@ -254,11 +266,21 @@ async def process_audio(job_id: str, file_path: str, output_path: str):
         JOBS[job_id]["output_path"] = output_path
 
     except Exception as e:
-        JOBS[job_id]["status"] = "failed"
-        JOBS[job_id]["error"] = str(e)
+        print(f"Errore durante l'elaborazione del job {job_id}: {str(e)}")
+        JOBS[job_id].update(
+            {
+                "status": "failed",
+                "error": {
+                    "message": str(e),
+                    "type": type(e).__name__,
+                    "details": "Si è verificato un errore durante l'elaborazione dell'audio",
+                },
+            }
+        )
+        raise
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # Cleanup temporary files even if error occurs
+        cleanup_temp_files(file_path)
 
 
 def format_transcription(text: str) -> str:
